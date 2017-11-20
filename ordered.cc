@@ -166,6 +166,41 @@ immediateSuccessor(const ColourSet &cset, const Witness &b) {
   }
   return b;
 }
+
+Witness
+substituteSuccessor(const ColourSet &cset, const Witness &b, int d) {
+  if (d > 0)
+    return b;
+
+  int i;
+  for (i = b.size() - 1; i >= 0; --i)
+    if (b[i] == d)
+      break;
+  if (i < 0)
+    return b;
+
+  auto next_odd = cset.lower_bound(d+1);
+  if (next_odd == cset.end())
+    return b;
+  int o = *next_odd;
+  if (o > 0)
+    o = d;
+
+  auto greatest = cset.lower_bound(-o-1);
+  if (greatest == cset.end())
+    return b;
+  if (greatest != cset.begin() && abs(*greatest) > abs(o))
+    --greatest;
+  int e = *greatest;
+  if (o == d && e < 0 || abs(e) > abs(o))
+    return b;
+
+  Witness b_ = b;
+  for (int j = 0; j < i; ++j)
+    b_[j] = e;
+  b_[i] = o;
+  return b_;
+}
 #else
 // NOTE: This is a wrong update rule. For comparison only.
 Witness
@@ -212,6 +247,19 @@ bool compareWitnessLT(const Witness &a, const Witness &b) {
 }
 
 /* both d and b are encoded colours */
+#ifndef BAD_UPDATE
+Witness
+antagonistUpdate(const ColourSet &cset, const Witness &b, int d) {
+  auto Scat = immediateSuccessor(cset, b);
+  return
+    min({
+          basicUpdate(b, d),
+          basicUpdate(Scat, d),
+          basicUpdate(substituteSuccessor(cset, b, d), d),
+          basicUpdate(substituteSuccessor(cset, Scat, d), d)},
+      compareWitnessLT);
+}
+#else
 Witness
 antagonistUpdate(const ColourSet &cset, const Witness &b, int d) {
   return min(
@@ -219,6 +267,7 @@ antagonistUpdate(const ColourSet &cset, const Witness &b, int d) {
              basicUpdate(immediateSuccessor(cset, b), d),
              compareWitnessLT);
 }
+#endif
 
 enum Fate {
   Won, Lost
@@ -488,6 +537,13 @@ winningCycles(Graph G, const ColourSet &cset) {
   return tuple(even, odd, G_);
 }
 
+void removeOneColour(ColourSet &cset, int colour) {
+  auto itr = cset.find(colour);
+  if (itr == cset.end())
+    return;
+  cset.erase(itr);
+}
+
 map<int, Status> solve(Graph G_, int iterations) {
   Graph G = G_;
   ColourSet cset;
@@ -505,8 +561,8 @@ map<int, Status> solve(Graph G_, int iterations) {
   for (int u : oddWinning) cout << ' ' << u;
   cout << endl;
   // colour reduction
-  for (int u : evenWinning) cset.erase(G_.at(u).colour);
-  for (int u : oddWinning) cset.erase(G_.at(u).colour);
+  for (int u : evenWinning) removeOneColour(cset, G_.at(u).colour);
+  for (int u : oddWinning) removeOneColour(cset, G_.at(u).colour);
   #endif
 
   int evenColourCount = 0;
@@ -586,7 +642,7 @@ map<int, Status> solve(Graph G_, int iterations) {
           updating_.insert(p);
         const int colour = G.at(v).colour;
         evenColourCount -= colour > 0;
-        cset.erase(colour);
+        removeOneColour(cset, colour);
       }
       set_difference(
                      nodes_.begin(),
